@@ -1,0 +1,107 @@
+
+// This is a reference schema definition as requested.
+// The actual implementation is in backend/app/models.py (SQLAlchemy).
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// DATASETS (Source Data)
+// ==========================================
+
+model Dataset {
+  id        Int            @id @default(autoincrement())
+  name      String         @unique
+  createdAt DateTime       @default(now())
+  sheets    DatasetSheet[]
+  mappings  Mapping[]
+}
+
+model DatasetSheet {
+  id        Int          @id @default(autoincrement())
+  datasetId Int
+  dataset   Dataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  name      String
+
+  // Instead of just columns, we now store actual Rows
+  rows      DatasetRow[]
+}
+
+model DatasetRow {
+  id        Int          @id @default(autoincrement())
+  sheetId   Int
+  sheet     DatasetSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  
+  // Storing the row data as a JSON object
+  // Example: { "受试者编号": "001", "年龄": 25, "性别": "男" }
+  data      Json         
+  
+  rowIndex  Int
+}
+
+// ==========================================
+// FRAMEWORKS (Mapping Standards)
+// ==========================================
+
+model Framework {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  version     String?
+  description String?
+  
+  sheets      FrameworkSheet[]
+  mappings    Mapping[]
+}
+
+model FrameworkSheet {
+  id                 Int       @id @default(autoincrement())
+  frameworkId        Int
+  framework          Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  
+  // Fields mapped from "数据源定位" sheet
+  standardSheetName  String    // Standard_SheetName (e.g., "AE")
+  standardColumnName String    // Standard_ColumnName (e.g., "AE_CESSATION_DATE")
+  
+
+  
+  infoType           String?   // 信息类型 (e.g., "基本信息")
+  note               String?   // 备注
+}
+
+// ==========================================
+// MAPPINGS (User Configurations)
+// ==========================================
+
+model Mapping {
+  id          Int            @id @default(autoincrement())
+  datasetId   Int
+  dataset     Dataset        @relation(fields: [datasetId], references: [id])
+  frameworkId Int
+  framework   Framework      @relation(fields: [frameworkId], references: [id])
+  savedAt     DateTime       @default(now())
+  
+  entries     MappingEntry[]
+}
+
+model MappingEntry {
+  id                 Int     @id @default(autoincrement())
+  mappingId          Int
+  mapping            Mapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  
+  sourceSheetName    String
+  sourceColumnName   String
+  
+  standardSheetName  String
+  standardColumnName String
+  
+  infoType           String?
+  note               String?
+  confidence         Float?
+  rationale          String? @db.Text
+}
