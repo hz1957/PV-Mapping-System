@@ -1,7 +1,7 @@
 
 import { Dataset, Mapping, SavedMapping, TargetFramework } from '../App';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // Types matching backend response
 interface BackendDataset {
@@ -256,5 +256,10 @@ export const api = {
                 rationale: e.rationale
             }))
         }));
-    }
+    },
+    getDatasetColumnPreview: async (datasetId: string, sheetName: string, columnName: string, limit: number = 10): Promise<string[]> => {
+        const response = await fetch(`${API_BASE_URL}/datasets/${datasetId}/preview/${sheetName}/${columnName}?limit=${limit}`);
+        if (!response.ok) throw new Error('Failed to fetch column preview');
+        return response.json();
+    },
 };

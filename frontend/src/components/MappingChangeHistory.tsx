@@ -10,10 +10,12 @@ interface MappingChangeHistoryProps {
 }
 
 export function MappingChangeHistory({ changeHistory, onBack }: MappingChangeHistoryProps) {
-  // 按时间倒序排列
-  const sortedHistory = [...changeHistory].sort((a, b) => 
-    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
+  // 按时间倒序排列，并过滤掉因为代码版本变更导致的旧数据（缺少 standardSheetName 的记录）
+  const sortedHistory = [...changeHistory]
+    .filter(r => r.standardSheetName)
+    .sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
 
   const formatDateTime = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -35,17 +37,17 @@ export function MappingChangeHistory({ changeHistory, onBack }: MappingChangeHis
       record.operator,
       record.datasetName,
       record.targetFramework,
-      record.sourceSheetName,
-      record.sourceColumnName,
-      record.oldStandardSheetName || '(空)',
-      record.newStandardSheetName,
-      record.oldStandardColumnName || '(空)',
-      record.newStandardColumnName,
+      record.standardSheetName,
+      record.standardColumnName,
+      record.oldSourceSheetName || '(空)',
+      record.newSourceSheetName || '(空)',
+      record.oldSourceColumnName || '(空)',
+      record.newSourceColumnName || '(空)',
     ]);
 
     autoTable(doc, {
       head: [
-        ['序号', '修改时间', '操作人', '数据集', '目标标准', '源表名', '源字段名', '修改前-标准表名', '修改后-标准表名', '修改前-标准字段名', '修改后-标准字段名'],
+        ['序号', '修改时间', '操作人', '数据集', '目标标准', '标准表名', '标准字段名', '修改前-源表名', '修改后-源表名', '修改前-源字段名', '修改后-源字段名'],
       ],
       body: tableData,
       startY: 20,
@@ -133,22 +135,22 @@ export function MappingChangeHistory({ changeHistory, onBack }: MappingChangeHis
                     <th className="px-3 py-3 text-left text-xs text-muted-foreground border-r min-w-[150px] sticky top-0 bg-muted/30 z-10">数据集</th>
                     <th className="px-3 py-3 text-left text-xs text-muted-foreground border-r min-w-[150px] sticky top-0 bg-muted/30 z-10">目标标准</th>
                     <th className="px-3 py-3 text-left text-xs border-r min-w-[120px] sticky top-0 bg-muted/30 z-10">
-                      <div className="text-gray-600">源表名</div>
+                      <div className="text-gray-600">标准表名</div>
                     </th>
                     <th className="px-3 py-3 text-left text-xs border-r min-w-[180px] sticky top-0 bg-muted/30 z-10">
-                      <div className="text-gray-600">源字段名</div>
+                      <div className="text-gray-600">标准字段名</div>
                     </th>
                     <th className="px-3 py-3 text-left text-xs border-r min-w-[150px] sticky top-0 bg-muted/30 z-10">
-                      <div style={{ color: '#dc2626' }}>修改前-标准表名</div>
+                      <div style={{ color: '#dc2626' }}>修改前-源表名</div>
                     </th>
                     <th className="px-3 py-3 text-left text-xs border-r min-w-[150px] sticky top-0 bg-muted/30 z-10">
-                      <div style={{ color: '#16a34a' }}>修改后-标准表名</div>
+                      <div style={{ color: '#16a34a' }}>修改后-源表名</div>
                     </th>
                     <th className="px-3 py-3 text-left text-xs border-r min-w-[200px] sticky top-0 bg-muted/30 z-10">
-                      <div style={{ color: '#dc2626' }}>修改前-标准字段名</div>
+                      <div style={{ color: '#dc2626' }}>修改前-源字段名</div>
                     </th>
                     <th className="px-3 py-3 text-left text-xs min-w-[200px] sticky top-0 bg-muted/30 z-10">
-                      <div style={{ color: '#16a34a' }}>修改后-标准字段名</div>
+                      <div style={{ color: '#16a34a' }}>修改后-源字段名</div>
                     </th>
                   </tr>
                 </thead>
@@ -175,32 +177,32 @@ export function MappingChangeHistory({ changeHistory, onBack }: MappingChangeHis
                       </td>
                       <td className="px-3 py-2.5 border-r">
                         <div className="rounded px-2 py-1 text-xs font-mono" style={{ backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', color: '#6b7280' }}>
-                          {record.sourceSheetName}
+                          {record.standardSheetName}
                         </div>
                       </td>
                       <td className="px-3 py-2.5 border-r">
                         <div className="rounded px-2 py-1 text-xs font-mono" style={{ backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', color: '#6b7280' }}>
-                          {record.sourceColumnName}
+                          {record.standardColumnName}
                         </div>
                       </td>
                       <td className="px-3 py-2.5 border-r">
                         <div className="rounded px-2 py-1 text-xs font-mono bg-red-50 text-red-700" style={{ border: '1px solid #fecaca' }}>
-                          {record.oldStandardSheetName || '(空)'}
+                          {record.oldSourceSheetName || '(空)'}
                         </div>
                       </td>
                       <td className="px-3 py-2.5 border-r">
                         <div className="rounded px-2 py-1 text-xs font-mono bg-green-50 text-green-700" style={{ border: '1px solid #bbf7d0' }}>
-                          {record.newStandardSheetName}
+                          {record.newSourceSheetName || '(空)'}
                         </div>
                       </td>
                       <td className="px-3 py-2.5 border-r">
                         <div className="rounded px-2 py-1 text-xs font-mono bg-red-50 text-red-700" style={{ border: '1px solid #fecaca' }}>
-                          {record.oldStandardColumnName || '(空)'}
+                          {record.oldSourceColumnName || '(空)'}
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="rounded px-2 py-1 text-xs font-mono bg-green-50 text-green-700" style={{ border: '1px solid #bbf7d0' }}>
-                          {record.newStandardColumnName}
+                          {record.newSourceColumnName || '(空)'}
                         </div>
                       </td>
                     </tr>

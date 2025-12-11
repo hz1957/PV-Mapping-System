@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pv-mapping-backend
+    ports:
+      - "8003:8000"
+    volumes:
+      - ./backend:/app  # Hot reload mount
+    environment:
+      - CONDA_DEFAULT_ENV=pv-demo # Optional: mock env var if needed by code checks
+      - DATABASE_URL=mysql+pymysql://root:password@db/pv_mapping_db
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - db
+    networks:
+      - pv-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pv-mapping-frontend
+    ports:
+      - "3003:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Avoid overwriting container node_modules with local
+    environment:
+      - VITE_API_BASE_URL=http://10.11.26.135:8003/api/v1 # Use IP for external access
+    depends_on:
+      - backend
+    networks:
+      - pv-network
+
+  db:
+    image: mysql:8.0
+    container_name: pv-mapping-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: pv_mapping_db
+    ports:
+      - "3306:3306" # Expose for local debugging if needed
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - pv-network
+
+networks:
+  pv-network:
+    driver: bridge
+
+volumes:
+  mysql-data:

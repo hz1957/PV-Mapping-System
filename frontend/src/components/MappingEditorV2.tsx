@@ -1,11 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
-import { ArrowLeft, Download, Save, Eye, Edit3, ChevronDown, ChevronRight, ArrowDown, LayoutGrid, Table2, Sparkles, Check } from 'lucide-react';
+import {
+  ArrowLeft, Download, Save, Eye, Edit3, ChevronDown,
+  ChevronRight,
+  RotateCcw, // Added
+  Table2,
+  LayoutGrid,
+  ArrowRight,
+  Maximize2,
+  Minimize2,
+  AlertCircle,
+  Sparkles
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Dataset, Mapping, TargetFramework } from '../App';
 
 import { SearchableSelect } from './SearchableSelect';
 import { toast } from 'sonner@2.0.3';
+import { api } from '../api';
 
 interface MappingEditorProps {
   dataset: Dataset;
@@ -19,14 +31,74 @@ interface MappingEditorProps {
   isGenerating?: boolean;
   onPreviewExport?: () => void;
   onRecordChange?: (
-    sourceSheetName: string,
-    sourceColumnName: string,
-    oldStandardSheetName: string,
-    newStandardSheetName: string,
-    oldStandardColumnName: string,
-    newStandardColumnName: string
+    standardSheetName: string,
+    standardColumnName: string,
+    oldSourceSheetName: string,
+    newSourceSheetName: string,
+    oldSourceColumnName: string,
+    newSourceColumnName: string
   ) => void;
 }
+
+// Helper component for column preview - extracted and memoized to prevent re-fetches
+const ColumnPreview = React.memo(({ datasetId, sheetName, columnName }: { datasetId: string, sheetName: string, columnName: string }) => {
+  const [samples, setSamples] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!sheetName || !columnName) return;
+    setLoading(true);
+    api.getDatasetColumnPreview(datasetId, sheetName, columnName)
+      .then(setSamples)
+      .catch(err => console.error("Failed to load preview", err))
+      .finally(() => setLoading(false));
+  }, [datasetId, sheetName, columnName]);
+
+  if (loading) return <div className="mt-2 text-xs text-muted-foreground animate-pulse">正在加载样本数据...</div>;
+
+  const slots = Array.from({ length: 10 });
+
+  return (
+    <div className="mt-1">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="font-medium text-gray-600">样例值</span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {slots.map((_, i) => {
+          const hasValue = i < samples.length;
+          const s = samples[i];
+          return (
+            <div
+              key={i}
+              className={`rounded px-3 py-2 font-mono text-sm ${hasValue ? 'overflow-x-auto whitespace-nowrap' : ''} no-scrollbar`}
+              style={{
+                backgroundColor: '#f3f4f6',
+                border: '1px solid #d1d5db',
+                color: '#6b7280',
+                minHeight: '38px' // Ensure fixed height for empty slots
+              }}
+              title={hasValue ? s : undefined}
+            >
+              {hasValue ? <span className="font-medium">{s}</span> : <span className="invisible">-</span>}
+            </div>
+          );
+        })}
+      </div>
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar {
+          height: 4px; 
+        }
+        .no-scrollbar::-webkit-scrollbar-thumb {
+          background: #d1d5db; 
+          border-radius: 2px;
+        }
+        .no-scrollbar::-webkit-scrollbar-track {
+          background: transparent; 
+        }
+      `}</style>
+    </div>
+  );
+});
 
 export function MappingEditorV2({
   dataset,
@@ -41,6 +113,8 @@ export function MappingEditorV2({
   onPreviewExport,
   onRecordChange,
 }: MappingEditorProps) {
+
+
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const cardViewScrollRef = useRef<HTMLDivElement>(null);
@@ -53,6 +127,68 @@ export function MappingEditorV2({
 
   // 追踪高亮的行索引（用于从卡片视图跳转时提示用户）
   const [highlightedRowIndex, setHighlightedRowIndex] = useState<number | null>(null);
+
+  // 保存原始映射数据，用于撤销
+  const [originalMappings, setOriginalMappings] = useState<Mapping[]>([]);
+
+  // 当 mappings 更新且没有任何编辑状态时，或者处于生成结束时，更新原始副本
+  // 这里简化策略：当 dataset 变化或者 isGenerating 从 true 变为 false 时，重置
+  useEffect(() => {
+    if (!isGenerating && mappings.length > 0 && editedCells.size === 0) {
+      setOriginalMappings(JSON.parse(JSON.stringify(mappings)));
+    }
+  }, [isGenerating, dataset.id]); // 只在生成状态变化或数据集变化时可能会重置
+
+  // 也可以在组件挂载时初始化（如果是已有数据）
+  useEffect(() => {
+    if (mappings.length > 0 && originalMappings.length === 0 && editedCells.size === 0) {
+      setOriginalMappings(JSON.parse(JSON.stringify(mappings)));
+    }
+  }, [mappings]);
+
+  const handleUndo = (index: number, field: 'sourceSheetName' | 'sourceColumnName') => {
+    if (!originalMappings[index]) return;
+
+    // 如果 sourceSheetName 被修改过，说明这是一个"表单变更"引起的联动修改
+    // 此时无论是撤销表单名还是字段名，都应该将两者同时恢复到初始状态，以保证数据一致性
+    if (editedCells.has(`${index}-sourceSheetName`)) {
+      const originalSheet = originalMappings[index].sourceSheetName;
+      const originalColumn = originalMappings[index].sourceColumnName;
+
+      // 同时更新两者
+      const newMappings = [...mappings];
+      newMappings[index] = {
+        ...newMappings[index],
+        sourceSheetName: originalSheet,
+        sourceColumnName: originalColumn
+      };
+
+      // 更新状态
+      onMappingsChange(newMappings);
+
+      // 清除两者的编辑标记
+      setEditedCells(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(`${index}-sourceSheetName`);
+        newSet.delete(`${index}-sourceColumnName`);
+        return newSet;
+      });
+
+      toast.success("已恢复源字段和表单");
+      return;
+    }
+
+    // 只有字段名被修改的情况（表单名未变）
+    const originalValue = originalMappings[index][field];
+    updateMapping(index, field, originalValue);
+
+    // Remove from editedCells
+    setEditedCells(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(`${index}-${field}`);
+      return newSet;
+    });
+  };
 
   // Scroll to bottom when generating new mappings
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -87,10 +223,10 @@ export function MappingEditorV2({
           sourceColumnName: ''  // 只清空字段名，保留表单名
         };
 
-        // 移除原行的字段名编辑标记
+        // 标记原行为已修改，以便用户可以撤销操作
         setEditedCells(prev => {
           const updated = new Set(prev);
-          updated.delete(`${duplicateIndex}-sourceColumnName`);
+          updated.add(`${duplicateIndex}-sourceColumnName`);
           return updated;
         });
 
@@ -137,43 +273,35 @@ export function MappingEditorV2({
     // 记录修改：当修改源字段或标准字段时
     if (onRecordChange) {
       if (field === 'sourceSheetName' || field === 'sourceColumnName') {
-        // 修改了源字段，使用新的源字段作为标识
+        // 修改了源字段
         const newSourceSheetName = field === 'sourceSheetName' ? value as string : oldMapping.sourceSheetName;
         const newSourceColumnName = field === 'sourceColumnName' ? value as string : oldMapping.sourceColumnName;
 
         // 源字段发生了变化
         if (oldMapping.sourceSheetName !== newSourceSheetName || oldMapping.sourceColumnName !== newSourceColumnName) {
           onRecordChange(
-            newSourceSheetName,
-            newSourceColumnName,
             oldMapping.standardSheetName,
-            oldMapping.standardSheetName, // 标准字段没变
             oldMapping.standardColumnName,
-            oldMapping.standardColumnName  // 标准字段没变
-          );
-        }
-      } else if (field === 'standardSheetName' || field === 'standardColumnName') {
-        // 修改了标准字段
-        const oldStandardSheetName = oldMapping.standardSheetName;
-        const oldStandardColumnName = oldMapping.standardColumnName;
-        const newStandardSheetName = field === 'standardSheetName' ? value as string : oldMapping.standardSheetName;
-        const newStandardColumnName = field === 'standardColumnName' ? value as string : oldMapping.standardColumnName;
-
-        if (oldStandardSheetName !== newStandardSheetName || oldStandardColumnName !== newStandardColumnName) {
-          onRecordChange(
             oldMapping.sourceSheetName,
+            newSourceSheetName,
             oldMapping.sourceColumnName,
-            oldStandardSheetName,
-            newStandardSheetName,
-            oldStandardColumnName,
-            newStandardColumnName
+            newSourceColumnName
           );
         }
       }
     }
 
     // 记录编辑过的单元格
-    setEditedCells(prev => new Set(prev.add(`${index}-${field}`)));
+    setEditedCells(prev => {
+      const newSet = new Set(prev);
+      newSet.add(`${index}-${field}`);
+
+      // 如果修改了表单名导致字段名被清空，也标记字段名为已修改，这样用户可以回撤字段名
+      if (field === 'sourceSheetName' && value !== oldMapping.sourceSheetName) {
+        newSet.add(`${index}-sourceColumnName`);
+      }
+      return newSet;
+    });
   };
 
   const toggleDetails = () => {
@@ -523,14 +651,21 @@ export function MappingEditorV2({
                     return (
                       <tr
                         key={index}
-                        className="border-b last:border-b-0 hover:bg-accent/30 transition-colors"
+                        className={`border-b last:border-b-0 hover:bg-accent/30 transition-colors ${isGenerating ? 'animate-row-entry' : ''}`}
                         data-row-index={index}
-                        style={isHighlighted ? {
-                          backgroundColor: '#f0f0ff',
-                          boxShadow: '0 2px 8px rgba(91, 95, 199, 0.2)',
-                          borderLeft: '3px solid #5b5fc7',
-                          borderRight: '3px solid #5b5fc7'
-                        } : {}}
+                        style={{
+                          ...(isHighlighted ? {
+                            backgroundColor: '#f0f0ff',
+                            boxShadow: '0 2px 8px rgba(91, 95, 199, 0.2)',
+                            borderLeft: '3px solid #5b5fc7',
+                            borderRight: '3px solid #5b5fc7'
+                          } : {}),
+                          // Staggered animation delay
+                          ...(isGenerating ? {
+                            animationDelay: `${(index % 10) * 0.1}s`,
+                            opacity: 0 // Start hidden, animation will fade it in
+                          } : {})
+                        }}
                       >
                         <td className="px-3 py-2 border-r text-xs text-muted-foreground sticky left-0 bg-card z-10">
                           {index + 1}
@@ -538,7 +673,13 @@ export function MappingEditorV2({
                         <td className="px-3 py-2 border-r">
                           <div className="flex items-center gap-1.5">
                             {editedCells.has(`${index}-sourceSheetName`) && (
-                              <Check className="size-3.5 flex-shrink-0" style={{ color: '#16a34a' }} />
+                              <button
+                                onClick={() => handleUndo(index, 'sourceSheetName')}
+                                className="hover:bg-indigo-50 p-0.5 rounded transition-colors"
+                                title="撤销修改"
+                              >
+                                <RotateCcw className="size-3.5 flex-shrink-0" style={{ color: '#4f46e5' }} />
+                              </button>
                             )}
                             <SearchableSelect
                               value={mapping.sourceSheetName}
@@ -555,7 +696,13 @@ export function MappingEditorV2({
                         <td className="px-3 py-2 border-r">
                           <div className="flex items-center gap-1.5">
                             {editedCells.has(`${index}-sourceColumnName`) && (
-                              <Check className="size-3.5 flex-shrink-0" style={{ color: '#16a34a' }} />
+                              <button
+                                onClick={() => handleUndo(index, 'sourceColumnName')}
+                                className="hover:bg-indigo-50 p-0.5 rounded transition-colors"
+                                title="撤销修改"
+                              >
+                                <RotateCcw className="size-3.5 flex-shrink-0" style={{ color: '#4f46e5' }} />
+                              </button>
                             )}
                             <SearchableSelect
                               value={mapping.sourceColumnName}
@@ -632,6 +779,17 @@ export function MappingEditorV2({
                 </tbody>
               </table>
             </div>
+            <style>
+              {`
+                @keyframes slideIn {
+                  from { opacity: 0; transform: translateY(10px); }
+                  to { opacity: 1; transform: translateY(0); }
+                }
+                .animate-row-entry {
+                  animation: slideIn 0.4s ease-out forwards;
+                }
+              `}
+            </style>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-sm overflow-hidden flex-1 flex flex-col" style={{ border: '1px solid #e5e7eb' }}>
@@ -686,14 +844,53 @@ export function MappingEditorV2({
                           </div>
 
                           <div className="flex items-center gap-1.5 mb-2">
-                            <span className="font-medium text-gray-600">源字段（只读）</span>
+                            <span className="font-medium text-gray-600">源字段</span>
                           </div>
 
-                          <div className="rounded px-3 py-2 font-mono text-sm" style={{ backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', color: '#6b7280' }}>
-                            <span className="font-medium">{mapping.sourceSheetName}</span>
-                            <span className="text-gray-400">.</span>
-                            <span>{mapping.sourceColumnName}</span>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-1.5">
+                              {editedCells.has(`${index}-sourceSheetName`) && (
+                                <button
+                                  onClick={() => handleUndo(index, 'sourceSheetName')}
+                                  className="hover:bg-indigo-50 p-0.5 rounded transition-colors"
+                                  title="撤销修改"
+                                >
+                                  <RotateCcw className="size-3.5 flex-shrink-0" style={{ color: '#4f46e5' }} />
+                                </button>
+                              )}
+                              <SearchableSelect
+                                value={mapping.sourceSheetName}
+                                onChange={(value) => updateMapping(index, 'sourceSheetName', value)}
+                                options={getSourceSheetOptions(index)}
+                                placeholder="选择表单"
+                                searchPlaceholder="搜索表单..."
+                                emptyText="未找到表单"
+                                className="text-xs w-full"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {editedCells.has(`${index}-sourceColumnName`) && (
+                                <button
+                                  onClick={() => handleUndo(index, 'sourceColumnName')}
+                                  className="hover:bg-indigo-50 p-0.5 rounded transition-colors"
+                                  title="撤销修改"
+                                >
+                                  <RotateCcw className="size-3.5 flex-shrink-0" style={{ color: '#4f46e5' }} />
+                                </button>
+                              )}
+                              <SearchableSelect
+                                value={mapping.sourceColumnName}
+                                onChange={(value) => updateMapping(index, 'sourceColumnName', value)}
+                                options={getSourceColumnOptions(index, mapping.sourceSheetName)}
+                                placeholder="选择字段"
+                                searchPlaceholder="搜索字段..."
+                                emptyText="未找到字段"
+                                className="text-xs w-full"
+                              />
+                            </div>
                           </div>
+
+
 
                           {isDetailsExpanded && (
                             <div className="space-y-2 pt-3 mt-3" style={{ borderTop: '1px solid #e5e7eb' }}>
@@ -724,82 +921,55 @@ export function MappingEditorV2({
                     })}
                   </tr>
 
-                  <tr style={{ backgroundColor: '#fafafa' }}>
-                    {mappings.map((_, index) => (
-                      <td
-                        key={index}
-                        className="px-4 py-1 text-center"
-                        style={{ borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}
-                      >
-                        <ArrowDown className="size-4 mx-auto" style={{ color: '#5b5fc7' }} />
-                      </td>
-                    ))}
-                  </tr>
+
 
                   <tr style={{ backgroundColor: '#fafafa' }}>
                     {mappings.map((mapping, index) => {
-                      const standardColumnOptions = getStandardColumnOptionsWithUsage(index, mapping.standardSheetName);
-                      const standardSheetOptions = getStandardSheetOptions();
                       return (
                         <td
                           key={index}
-                          className="px-4 py-2.5"
+                          className="px-4 py-3 min-w-[280px] max-w-[280px] align-top"
                           style={{ borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}
                         >
                           <div className="flex items-center gap-1.5 mb-2">
-                            <Edit3 className="size-3.5" style={{ color: '#5b5fc7' }} />
-                            <span className="font-medium" style={{ color: '#5b5fc7' }}>标准字段（可修改）</span>
+
+                            <span className="font-medium text-gray-600">标准字段（只读）</span>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1">
-                              <div className="text-xs text-muted-foreground mb-1">表单名称</div>
-                              <div className="flex items-center gap-1.5">
-                                {editedCells.has(`${index}-standardSheetName`) && (
-                                  <Check className="size-3.5 flex-shrink-0" style={{ color: '#16a34a' }} />
-                                )}
-                                <SearchableSelect
-                                  value={mapping.standardSheetName}
-                                  onChange={(value) => updateMapping(index, 'standardSheetName', value)}
-                                  options={standardSheetOptions.map(s => ({ value: s, label: s }))}
-                                  placeholder="选择表单"
-                                  searchPlaceholder="搜索表单..."
-                                  emptyText="未找到表单"
-                                />
-                              </div>
-                            </div>
-
-                            <span className="text-muted-foreground text-xs mt-5">.</span>
-
-                            <div className="flex-[2]">
-                              <div className="text-xs text-muted-foreground mb-1">字段名称</div>
-                              <div className="flex items-center gap-1.5">
-                                {editedCells.has(`${index}-standardColumnName`) && (
-                                  <Check className="size-3.5 flex-shrink-0" style={{ color: '#16a34a' }} />
-                                )}
-                                <SearchableSelect
-                                  value={mapping.standardColumnName}
-                                  onChange={(value) => updateMapping(index, 'standardColumnName', value)}
-                                  options={standardColumnOptions}
-                                  placeholder="选择字段"
-                                  searchPlaceholder="搜索字段..."
-                                  emptyText="未找到字段"
-                                />
-                              </div>
-                            </div>
+                          <div className="rounded px-3 py-2 font-mono text-sm break-all whitespace-normal" style={{ backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', color: '#6b7280' }}>
+                            {mapping.standardSheetName || '-'}.{mapping.standardColumnName || '-'}
                           </div>
+
+
                         </td>
                       );
                     })}
+                  </tr>
+
+                  <tr style={{ backgroundColor: '#fafafa' }}>
+                    {mappings.map((mapping, index) => (
+                      <td
+                        key={index}
+                        className="px-4 py-3 min-w-[280px] max-w-[280px] align-top"
+                        style={{ borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}
+                      >
+                        <ColumnPreview
+                          datasetId={dataset.id}
+                          sheetName={mapping.sourceSheetName}
+                          columnName={mapping.sourceColumnName}
+                        />
+                      </td>
+                    ))}
                   </tr>
 
 
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-      </div>
-    </div>
+          </div >
+        )
+        }
+      </div >
+    </div >
   );
 }

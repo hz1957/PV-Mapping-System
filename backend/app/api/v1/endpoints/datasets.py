@@ -28,3 +28,15 @@ def read_dataset(dataset_id: int, db: Session = Depends(get_db)):
     if db_dataset is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return db_dataset
+
+@router.get("/{dataset_id}/preview/{sheet_name}/{column_name}", response_model=List[str])
+def get_dataset_column_preview(
+    dataset_id: int, 
+    sheet_name: str, 
+    column_name: str, 
+    limit: int = 10, 
+    db: Session = Depends(get_db)
+):
+    return crud.get_dataset_column_sample(db, dataset_id, sheet_name, column_name, limit)
+
+

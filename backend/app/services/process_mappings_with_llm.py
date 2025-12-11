@@ -1,13 +1,10 @@
 import json
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .llm_factory import get_default_llm
 
-
-
-
-
 def process_request_with_llm_stream(request_data, llm):
-    """Process a single request file using LLM and yield results per sheet group"""
+    """Process a single request file using LLM and yield results per sheet group in parallel"""
     
     source_data = request_data.get('source', {})
     target_data = request_data.get('target', {})
@@ -20,74 +17,89 @@ def process_request_with_llm_stream(request_data, llm):
             sheet_groups[sheet_name] = {}
         sheet_groups[sheet_name][mapping.get('Standard_ColumnName')] = mapping
     
-    # Process each sheet group separately
-    for sheet_name, sheet_mappings_dict in sheet_groups.items():
-        sheet_mappings = list(sheet_mappings_dict.values())
-        print(f"  📋 Processing sheet: {sheet_name} ({len(sheet_mappings)} columns)")
+    # Process sheet groups concurrently
+    # Use max_workers=5 to avoid hitting rate limits too hard while getting speedup
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_sheet = {
+            executor.submit(_process_single_sheet_task, sheet_name, sheet_mappings_dict, source_data, llm): sheet_name
+            for sheet_name, sheet_mappings_dict in sheet_groups.items()
+        }
         
-        # Optimization: Filter Source Data
-        # If we can find source sheets that contain the standard sheet name, 
-        # we only provide those to the LLM to reduce context window and noise.
-        source_sheets = source_data.get('sheets', {})
-        matching_source_sheets = []
-        
-        for src_sheet in source_sheets.keys():
-            # Check if standard sheet name is part of source sheet name (case-insensitive)
-            # e.g. "AE" in "RAW_AE" or "AE_Domain"
-            if sheet_name.lower() in src_sheet.lower():
-                matching_source_sheets.append(src_sheet)
-        
-        filtered_source_data = source_data
-        if matching_source_sheets:
-            print(f"    🔍 Optimization: Found matching source sheets: {matching_source_sheets}")
-            filtered_source_data = {
-                "description": source_data.get("description", ""),
-                "sheets": {k: v for k, v in source_sheets.items() if k in matching_source_sheets}
-            }
-        else:
-             print(f"    ⚠️ No direct sheet match found for '{sheet_name}', using all source sheets.")
-
-        # Create prompt for this sheet group
-        prompt = create_sheet_group_prompt(filtered_source_data, sheet_name, sheet_mappings)
-        
-        max_attempts = 3
-        sheet_success = False
-        last_error = None
-        
-        for attempt in range(1, max_attempts + 1):
+        for future in as_completed(future_to_sheet):
+            sheet_name = future_to_sheet[future]
             try:
-                response = llm.invoke(prompt)
-                sheet_result = parse_llm_response(response, sheet_mappings_dict)
-                
+                sheet_result = future.result()
                 if sheet_result:
-                    print(f"    ✅ Generated {len(sheet_result)} mappings for {sheet_name}")
                     yield sheet_result
-                    sheet_success = True
-                    break
-                
-                if attempt < max_attempts:
-                    print(f"    ⚠️ Parse failed (attempt {attempt}/{max_attempts}), retrying...")
             except Exception as e:
-                last_error = str(e)
-                if attempt < max_attempts:
-                    print(f"    ⚠️ Error processing sheet {sheet_name}: {e}, retrying...")
-        
-        if not sheet_success:
-             print(f"    ❌ Failed to process sheet {sheet_name}. Yielding placeholders.")
-             # Yield placeholders so we don't return nothing for this sheet
-             placeholders = []
-             for col_name, original in sheet_mappings_dict.items():
-                 placeholders.append({
-                    "Source_ColumnName": "",
-                    "Source_SheetName": "",
-                    "Standard_ColumnName": col_name,
-                    "Standard_SheetName": sheet_name,
-                    "信息类型": original.get("信息类型", ""),
-                    "备注": original.get("备注", ""),
-                    "Confidence": 0.0,
-                    "Rationale": f"Processing failed: {last_error}"
-                 })
-             yield placeholders
+                print(f"    ❌ Critical error in thread for sheet {sheet_name}: {e}")
+                # Yield error placeholders as fallback
+                yield _generate_placeholders(sheet_name, sheet_groups[sheet_name], str(e))
+
+def _process_single_sheet_task(sheet_name, sheet_mappings_dict, source_data, llm):
+    """Helper function to process a single sheet group (runs in thread)"""
+    sheet_mappings = list(sheet_mappings_dict.values())
+    print(f"  📋 Processing sheet: {sheet_name} ({len(sheet_mappings)} columns)")
+    
+    # Optimization: Filter Source Data
+    source_sheets = source_data.get('sheets', {})
+    matching_source_sheets = []
+    
+    for src_sheet in source_sheets.keys():
+        # Check if standard sheet name is part of source sheet name (case-insensitive)
+        if sheet_name.lower() in src_sheet.lower():
+            matching_source_sheets.append(src_sheet)
+    
+    filtered_source_data = source_data
+    if matching_source_sheets:
+        print(f"    🔍 Optimization: Found matching source sheets: {matching_source_sheets}")
+        filtered_source_data = {
+            "description": source_data.get("description", ""),
+            "sheets": {k: v for k, v in source_sheets.items() if k in matching_source_sheets}
+        }
+    else:
+         print(f"    ⚠️ No direct sheet match found for '{sheet_name}', using all source sheets.")
+
+    # Create prompt for this sheet group
+    prompt = create_sheet_group_prompt(filtered_source_data, sheet_name, sheet_mappings)
+    
+    max_attempts = 3
+    last_error = None
+    
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = llm.invoke(prompt)
+            sheet_result = parse_llm_response(response, sheet_mappings_dict)
+            
+            if sheet_result:
+                print(f"    ✅ Generated {len(sheet_result)} mappings for {sheet_name}")
+                return sheet_result
+            
+            if attempt < max_attempts:
+                print(f"    ⚠️ Parse failed (attempt {attempt}/{max_attempts}) for {sheet_name}, retrying...")
+        except Exception as e:
+            last_error = str(e)
+            if attempt < max_attempts:
+                print(f"    ⚠️ Error processing sheet {sheet_name}: {e}, retrying...")
+    
+    print(f"    ❌ Failed to process sheet {sheet_name}. Returning placeholders.")
+    return _generate_placeholders(sheet_name, sheet_mappings_dict, last_error)
+
+def _generate_placeholders(sheet_name, sheet_mappings_dict, error_msg):
+    """Generate empty placeholder mappings when LLM fails"""
+    placeholders = []
+    for col_name, original in sheet_mappings_dict.items():
+         placeholders.append({
+            "Source_ColumnName": "",
+            "Source_SheetName": "",
+            "Standard_ColumnName": col_name,
+            "Standard_SheetName": sheet_name,
+            "信息类型": original.get("信息类型", ""),
+            "备注": original.get("备注", ""),
+            "Confidence": 0.0,
+            "Rationale": f"Processing failed: {error_msg}"
+         })
+    return placeholders
 
 def create_sheet_group_prompt(source_data, sheet_name, sheet_mappings):
     """Create focused prompt for a specific target sheet group"""
@@ -107,7 +119,7 @@ def create_sheet_group_prompt(source_data, sheet_name, sheet_mappings):
     
     # 4. Target Schema for this specific sheet
     target_schema = build_sheet_target_schema(sheet_name, sheet_mappings)
-    prompt_sections.append(f"## Target Schema for Sheet: {sheet_name}\n\n{target_schema}")
+    prompt_sections.append(f"## Standard Schema for Sheet: {sheet_name}\n\n{target_schema}")
     
     # 5. Column Hints
     column_hints = build_column_hints()
@@ -303,6 +315,11 @@ def parse_llm_response(response, sheet_mappings_dict):
             }
 
             key = (resolved_standard_sheet, standard_col)
+            
+            # STRICT FILTER: Ignore mappings for columns we didn't ask for (Safety Net)
+            if standard_col not in sheet_mappings_dict:
+                continue
+                
             current_best = best_by_standard.get(key)
             if current_best is None or conf > current_best.get("Confidence", 0.0):
                 best_by_standard[key] = candidate
@@ -335,11 +352,11 @@ def parse_llm_response(response, sheet_mappings_dict):
 # Constants for prompt sections
 TASK_INSTRUCTIONS = """# Column Mapping Task
 
-You are a clinical data mapping expert. Your task is to map source data columns to target schema columns for a clinical trial data integration project.
+You are a clinical data mapping expert. Your task is to map source data columns to standard schema columns for a clinical trial data integration project.
 
 ## Your Mission
 
-For each target column in the target schema, find the best matching source column from the source data. Consider:
+For each standard column in the standard schema, find the best matching source column from the source data. Consider:
 1. **Semantic similarity** - What the column represents
 2. **Data type compatibility** - Can the data be converted?
 3. **Business context** - Clinical trial domain knowledge
@@ -349,7 +366,7 @@ For each target column in the target schema, find the best matching source colum
 
 1. **One-to-One Mapping**: Each target column should map to exactly one source column
 2. **Best Fit**: Choose the most semantically similar source column
-3. **Data Type Consideration**: Ensure data types are compatible
+3. **Data type Consideration**: Ensure data types are compatible
 4. **Business Logic**: Apply clinical trial domain knowledge
 5. **Sheet Context**: Consider which source sheet contains the relevant data
 6. **No Duplication**: Don't map multiple target columns to the same source column unless justified
@@ -380,6 +397,8 @@ OUTPUT_FORMAT_SCHEMA = """```json
 ```
 
 **Important**: 
+- **STRICTLY** output only the mappings for the target columns provided in the "Standard Schema". 
+- **DO NOT** invent or add any extra columns that are not in the Standard Schema.
 - All target columns from the schema must be included in the output
 - Confidence scores should reflect how certain you are about the mapping
 - Rationale should explain your reasoning using the provided hints and context"""
@@ -425,5 +444,3 @@ MAPPING_EXAMPLES = """### 示例1: 高置信度映射
   "Rationale": "源列代表'最高级别（CTCAE 5.0）'，是不良事件的严重性分级。上下文和AEHCTCAE缩写确认这是严重性数据。"
 }
 ```"""
-
-

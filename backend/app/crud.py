@@ -23,6 +23,40 @@ def create_dataset(db: Session, dataset: schemas.DatasetCreate):
     # Note: sheets/rows creation is complex, usually handled by seed script or specialized upload endpoint.
     return db_dataset
 
+def get_dataset_column_sample(db: Session, dataset_id: int, sheet_name: str, column_name: str, limit: int = 10):
+    # 1. Find the sheet
+    sheet = db.query(models.DatasetSheet).filter(
+        models.DatasetSheet.dataset_id == dataset_id,
+        models.DatasetSheet.name == sheet_name
+    ).first()
+    
+    if not sheet:
+        return []
+
+    # 2. Query rows and extract JSON value
+    # Utilizing JSON access in SQL (PostgreSQL/SQLite dependent, but here using Python side for safety/simplicity)
+    # Fetch more rows than limit to ensure distinctness
+    rows = db.query(models.DatasetRow).filter(
+        models.DatasetRow.sheet_id == sheet.id
+    ).limit(500).all()
+    
+    distinct_values = set()
+    result = []
+    
+    for row in rows:
+        val = row.data.get(column_name)
+        if val is not None:
+            s_val = str(val).strip()
+            if s_val and s_val not in distinct_values:
+                distinct_values.add(s_val)
+                result.append(s_val)
+                if len(result) >= limit:
+                    break
+                    
+    return result
+
+
+
 # --- Frameworks ---
 
 def get_frameworks(db: Session, skip: int = 0, limit: int = 100):

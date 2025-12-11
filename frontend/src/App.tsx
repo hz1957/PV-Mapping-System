@@ -60,15 +60,15 @@ export interface MappingChangeRecord {
   id: string;
   timestamp: string;
   datasetName: string;
-  targetFramework: string; // 添加目标标准名称
-  sourceSheetName: string;
-  sourceColumnName: string;
-  changeType: 'standardSheet' | 'standardColumn' | 'both';
-  oldStandardSheetName: string;
-  newStandardSheetName: string;
-  oldStandardColumnName: string;
-  newStandardColumnName: string;
-  operator: string; // 操作者
+  targetFramework: string;
+  standardSheetName: string; // 标准表名（上下文）
+  standardColumnName: string; // 标准字段名（上下文）
+  changeType: 'sourceSheet' | 'sourceColumn' | 'both';
+  oldSourceSheetName: string;
+  newSourceSheetName: string;
+  oldSourceColumnName: string;
+  newSourceColumnName: string;
+  operator: string;
 }
 
 export default function App() {
@@ -319,23 +319,23 @@ export default function App() {
 
   // 记录映射修改
   const handleRecordChange = (
-    sourceSheetName: string,
-    sourceColumnName: string,
-    oldStandardSheetName: string,
-    newStandardSheetName: string,
-    oldStandardColumnName: string,
-    newStandardColumnName: string
+    standardSheetName: string,
+    standardColumnName: string,
+    oldSourceSheetName: string,
+    newSourceSheetName: string,
+    oldSourceColumnName: string,
+    newSourceColumnName: string
   ) => {
     if (!selectedDataset) return;
 
     // 判断修改类型
-    let changeType: 'standardSheet' | 'standardColumn' | 'both';
-    if (oldStandardSheetName !== newStandardSheetName && oldStandardColumnName !== newStandardColumnName) {
+    let changeType: 'sourceSheet' | 'sourceColumn' | 'both';
+    if (oldSourceSheetName !== newSourceSheetName && oldSourceColumnName !== newSourceColumnName) {
       changeType = 'both';
-    } else if (oldStandardSheetName !== newStandardSheetName) {
-      changeType = 'standardSheet';
+    } else if (oldSourceSheetName !== newSourceSheetName) {
+      changeType = 'sourceSheet';
     } else {
-      changeType = 'standardColumn';
+      changeType = 'sourceColumn';
     }
 
     const newRecord: MappingChangeRecord = {
@@ -343,14 +343,14 @@ export default function App() {
       timestamp: new Date().toISOString(),
       datasetName: selectedDataset.name,
       targetFramework: selectedFramework?.name || '未知标准',
-      sourceSheetName,
-      sourceColumnName,
+      standardSheetName,
+      standardColumnName,
       changeType,
-      oldStandardSheetName,
-      newStandardSheetName,
-      oldStandardColumnName,
-      newStandardColumnName,
-      operator: '当前用户' // 可以扩展为实际的用户信息
+      oldSourceSheetName,
+      newSourceSheetName,
+      oldSourceColumnName,
+      newSourceColumnName,
+      operator: '当前用户'
     };
 
     setChangeHistory(prev => [newRecord, ...prev]);
