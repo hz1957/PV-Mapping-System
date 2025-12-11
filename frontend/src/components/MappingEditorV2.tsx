@@ -3,7 +3,7 @@ import { Button } from './ui/button';
 import { ArrowLeft, Download, Save, Eye, Edit3, ChevronDown, ChevronRight, ArrowDown, LayoutGrid, Table2, Sparkles, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Dataset, Mapping, TargetFramework } from '../App';
-import { generateMockDataForColumn } from '../utils/mockDataGenerator';
+
 import { SearchableSelect } from './SearchableSelect';
 import { toast } from 'sonner@2.0.3';
 
@@ -41,7 +41,6 @@ export function MappingEditorV2({
   onPreviewExport,
   onRecordChange,
 }: MappingEditorProps) {
-  const [previewData, setPreviewData] = useState<Map<string, string[]>>(new Map());
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const cardViewScrollRef = useRef<HTMLDivElement>(null);
@@ -62,20 +61,6 @@ export function MappingEditorV2({
       tableContainerRef.current.scrollTop = tableContainerRef.current.scrollHeight;
     }
   }, [mappings.length, isGenerating]);
-
-  useEffect(() => {
-    const newPreviewData = new Map<string, string[]>();
-    mappings.forEach((mapping, index) => {
-      const key = `${index}`;
-      const data = generateMockDataForColumn(
-        mapping.sourceSheetName,
-        mapping.sourceColumnName,
-        10
-      );
-      newPreviewData.set(key, data);
-    });
-    setPreviewData(newPreviewData);
-  }, [mappings]);
 
   const updateMapping = (index: number, field: keyof Mapping, value: string | number) => {
     const oldMapping = mappings[index];
@@ -808,42 +793,7 @@ export function MappingEditorV2({
                     })}
                   </tr>
 
-                  <tr style={{ backgroundColor: '#f9fafb' }}>
-                    {mappings.map((_, index) => (
-                      <td
-                        key={index}
-                        className="px-4 py-2"
-                        style={{ borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <Eye className="size-3.5" style={{ color: '#5b5fc7' }} />
-                          <span className="text-sm font-medium" style={{ color: '#5b5fc7' }}>数据预览</span>
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
 
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((rowIndex) => (
-                    <tr key={`preview-${rowIndex}`} className="hover:bg-gray-50">
-                      {mappings.map((mapping, mappingIndex) => {
-                        const previewDataForMapping = previewData.get(`${mappingIndex}`) || [];
-                        return (
-                          <td
-                            key={mappingIndex}
-                            className="px-4 py-2"
-                            style={{ borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground w-5 flex-shrink-0">{rowIndex + 1}</span>
-                              <div className="flex-1 font-mono text-xs px-3 py-1.5 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e5e7eb' }}>
-                                {previewDataForMapping[rowIndex] || '-'}
-                              </div>
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
                 </tbody>
               </table>
             </div>

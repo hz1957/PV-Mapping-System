@@ -1,6 +1,6 @@
 # PV Mapping System
 
-PV Mapping 系统是一个智能化的临床试验数据映射平台，旨在辅助用户将不同来源的临床试验数据（Source Data）标准化映射到目标标准框架（Target Framework，如 CDISC, RBM 等）。系统结合了基于 LLM（大语言模型）的自动映射建议和直观的人工交互编辑功能。
+PV Mapping 系统是一个AI智能化的临床试验数据映射平台，旨在辅助用户将不同来源的临床试验数据（Source Data）标准化映射到目标标准框架（Target Framework，如 CDISC, RBM 等）。系统结合了基于 LLM（大语言模型）的自动映射建议和直观的人工交互编辑功能。
 
 ## 功能特性
 

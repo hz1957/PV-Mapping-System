@@ -6,7 +6,7 @@ import { MappingChangeHistory } from './components/MappingChangeHistory';
 import { HistoryView } from './components/HistoryView';
 import { ExportPreview } from './components/ExportPreview';
 
-import { getPredefinedMappings } from './data/predefinedMappings';
+
 import { api } from './api';
 import { toast } from 'sonner';
 
@@ -176,15 +176,6 @@ export default function App() {
     setSelectedFramework(framework);
 
     if (!selectedDataset) return;
-
-    // 尝试获取预定义映射 (Optional: keep for demo speed if matched)
-    const predefinedMappings = getPredefinedMappings(selectedDataset.name, framework.id);
-
-    if (predefinedMappings.length > 0) {
-      setMappings(predefinedMappings);
-      setCurrentStep('mapping');
-      return;
-    }
 
     // Call Backend AI Generation (Stream)
     setMappings([]); // Start clean
