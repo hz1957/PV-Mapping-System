@@ -95,3 +95,19 @@ class MappingEntry(Base):
     rationale = Column(Text, nullable=True)
     
     mapping = relationship("Mapping", back_populates="entries")
+
+class ChangeLog(Base):
+    __tablename__ = "change_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    dataset_name = Column(String(255))
+    target_framework = Column(String(255))
+    standard_sheet_name = Column(String(255)) 
+    standard_column_name = Column(String(255))
+    change_type = Column(String(50)) # sourceSheet, sourceColumn, both
+    old_source_sheet_name = Column(String(255), nullable=True)
+    new_source_sheet_name = Column(String(255), nullable=True)
+    old_source_column_name = Column(String(255), nullable=True)
+    new_source_column_name = Column(String(255), nullable=True)
+    operator = Column(String(100), default="Current User")

@@ -262,4 +262,58 @@ export const api = {
         if (!response.ok) throw new Error('Failed to fetch column preview');
         return response.json();
     },
+
+    // Change Logs
+    getChangeLogs: async (): Promise<MappingChangeRecord[]> => {
+        const response = await fetch(`${API_BASE_URL}/change-logs/`);
+        if (!response.ok) throw new Error('Failed to fetch change logs');
+        const data = await response.json();
+        return data.map((d: any) => ({
+            ...d,
+            targetFramework: d.target_framework,
+            standardSheetName: d.standard_sheet_name,
+            standardColumnName: d.standard_column_name,
+            changeType: d.change_type,
+            oldSourceSheetName: d.old_source_sheet_name,
+            newSourceSheetName: d.new_source_sheet_name,
+            oldSourceColumnName: d.old_source_column_name,
+            newSourceColumnName: d.new_source_column_name,
+        }));
+    },
+
+    createChangeLog: async (log: Omit<MappingChangeRecord, 'id' | 'timestamp'>): Promise<void> => {
+        const payload = {
+            dataset_name: log.datasetName,
+            target_framework: log.targetFramework,
+            standard_sheet_name: log.standardSheetName,
+            standard_column_name: log.standardColumnName,
+            change_type: log.changeType,
+            old_source_sheet_name: log.oldSourceSheetName,
+            new_source_sheet_name: log.newSourceSheetName,
+            old_source_column_name: log.oldSourceColumnName,
+            new_source_column_name: log.newSourceColumnName,
+            operator: log.operator
+        };
+        const response = await fetch(`${API_BASE_URL}/change-logs/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error('Failed to create change log');
+    }
 };
+
+export interface MappingChangeRecord {
+    id: string;
+    timestamp: string;
+    datasetName: string;
+    targetFramework: string;
+    standardSheetName: string; // 标准表名（上下文）
+    standardColumnName: string; // 标准字段名（上下文）
+    changeType: 'sourceSheet' | 'sourceColumn' | 'both';
+    oldSourceSheetName: string;
+    newSourceSheetName: string;
+    oldSourceColumnName: string;
+    newSourceColumnName: string;
+    operator: string;
+}

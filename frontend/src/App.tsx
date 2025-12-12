@@ -94,6 +94,7 @@ export default function App() {
         const datasets = await api.getDatasets();
         const frameworks = await api.getFrameworks();
         const history = await api.getSavedMappings();
+        const changes = await api.getChangeLogs();
 
         // Map dataset names for history
         const historyWithNames = history.map(h => {
@@ -112,6 +113,7 @@ export default function App() {
         setAllDatasets(datasets);
         setAllFrameworks(frameworks);
         setSavedMappings(historyWithNames);
+        setChangeHistory(changes);
       } catch (e) {
         console.error("Failed to load data", e);
       } finally {
@@ -120,6 +122,39 @@ export default function App() {
     };
     initData();
   }, []);
+
+  // Refresh history when entering the step
+  useEffect(() => {
+    if (currentStep === 'history') {
+      const refreshHistory = async () => {
+        try {
+          setIsLoading(true);
+          const history = await api.getSavedMappings();
+          const datasets = allDatasets.length > 0 ? allDatasets : await api.getDatasets();
+          const frameworks = allFrameworks.length > 0 ? allFrameworks : await api.getFrameworks();
+
+          // Update lists if we fetched them
+          if (allDatasets.length === 0) setAllDatasets(datasets);
+          if (allFrameworks.length === 0) setAllFrameworks(frameworks);
+
+          const historyWithNames = history.map(h => {
+            const ds = datasets.find(d => String(d.id) === String(h.datasetId));
+            const fw = frameworks.find(f => String(f.id) === String(h.frameworkId));
+            const displayName = ds
+              ? (fw ? `${ds.name} (${fw.name})` : ds.name)
+              : (h.datasetName && !h.datasetName.startsWith('Dataset #') ? h.datasetName : `Dataset #${h.datasetId}`);
+            return { ...h, datasetName: displayName };
+          });
+          setSavedMappings(historyWithNames);
+        } catch (e) {
+          console.error("Failed to refresh history", e);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      refreshHistory();
+    }
+  }, [currentStep]);
 
   const handleSeedData = async () => {
     setIsLoading(true);
@@ -354,6 +389,11 @@ export default function App() {
     };
 
     setChangeHistory(prev => [newRecord, ...prev]);
+
+    // Persist to backend
+    api.createChangeLog(newRecord).catch(err => {
+      console.error("Failed to save change log", err);
+    });
   };
 
   return (
@@ -363,7 +403,11 @@ export default function App() {
           <DatasetSelector
             datasets={allDatasets}
             onGenerateMapping={handleGenerateMapping}
-            onViewHistory={() => setCurrentStep('history')}
+            onViewHistory={() => {
+              setSelectedDataset(null);
+              setSelectedFramework(null);
+              setCurrentStep('history');
+            }}
             historyCount={savedMappings.length}
           />
           {allDatasets.length === 0 && !isLoading && (

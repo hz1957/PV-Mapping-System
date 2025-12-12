@@ -9,13 +9,13 @@ class DatasetRow(BaseModel):
     row_index: int
     data: Dict[str, Any]
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DatasetSheet(BaseModel):
     name: str
     rows: List[DatasetRow] = [] # Note: Fetching all rows might be heavy
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DatasetCreate(BaseModel):
     name: str
@@ -30,7 +30,7 @@ class Dataset(BaseModel):
     sheets: List[DatasetSheet] = [] # Note: This might be heavy if many rows
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # --- Frameworks ---
 
@@ -44,7 +44,7 @@ class FrameworkSheetBase(BaseModel):
 class FrameworkSheet(FrameworkSheetBase):
     id: int
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class FrameworkCreate(BaseModel):
     name: str
@@ -60,7 +60,7 @@ class Framework(BaseModel):
     sheets: List[FrameworkSheet] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # --- Mappings ---
 
@@ -80,7 +80,7 @@ class MappingEntryCreate(MappingEntryBase):
 class MappingEntry(MappingEntryBase):
     id: int
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class MappingCreate(BaseModel):
     dataset_id: int
@@ -95,8 +95,33 @@ class Mapping(BaseModel):
     entries: List[MappingEntry] = []
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class MappingGenerateRequest(BaseModel):
     dataset_id: int
     framework_id: int
+
+# --- Change Logs ---
+
+class ChangeLogBase(BaseModel):
+    dataset_name: str
+    target_framework: str
+    standard_sheet_name: str
+    standard_column_name: str
+    change_type: str
+    old_source_sheet_name: Optional[str] = None
+    new_source_sheet_name: Optional[str] = None
+    old_source_column_name: Optional[str] = None
+    new_source_column_name: Optional[str] = None
+    operator: Optional[str] = "Current User"
+
+class ChangeLogCreate(ChangeLogBase):
+    pass
+
+class ChangeLog(ChangeLogBase):
+    id: int
+    timestamp: datetime
+    
+    class Config:
+        from_attributes = True
+

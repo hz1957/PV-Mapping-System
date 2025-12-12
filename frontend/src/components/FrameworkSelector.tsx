@@ -208,6 +208,7 @@ export function FrameworkSelector({
                 size="sm"
                 onClick={() => onViewHistory && onViewHistory(selectedFramework?.id)}
                 className="text-xs"
+                disabled={!selectedFramework}
               >
                 查看历史记录
               </Button>

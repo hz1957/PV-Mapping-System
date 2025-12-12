@@ -5,10 +5,36 @@ from . import models, schemas
 # --- Datasets ---
 
 def get_datasets(db: Session, skip: int = 0, limit: int = 100):
-    # Optimize: Don't load all rows for the list view, just metadata if possible.
-    # But since 'sheets' is default loaded, we might need to be careful.
-    # Pydantic schema default for 'sheets' is [], so it might be okay.
-    return db.query(models.Dataset).offset(skip).limit(limit).all()
+    # Optimize: Only load one row per sheet for column inference to avoid massive payload
+    datasets = db.query(models.Dataset).offset(skip).limit(limit).all()
+    
+    result = []
+    for d in datasets:
+        sheets_data = []
+        for s in d.sheets:
+            # Manually query for just 1 row
+            # We must be careful not to touch s.rows relationship to avoid lazy loading thousands of rows
+            first_row = db.query(models.DatasetRow).filter(models.DatasetRow.sheet_id == s.id).first()
+            
+            # Construct Pydantic model for row
+            rows_list = []
+            if first_row:
+                 rows_list.append(schemas.DatasetRow(
+                     id=first_row.id, 
+                     row_index=first_row.row_index, 
+                     data=first_row.data
+                 ))
+            
+            # Construct Pydantic model for sheet
+            sheets_data.append(schemas.DatasetSheet(name=s.name, rows=rows_list))
+            
+        result.append(schemas.Dataset(
+            id=d.id,
+            name=d.name,
+            created_at=d.created_at,
+            sheets=sheets_data
+        ))
+    return result
 
 def get_dataset(db: Session, dataset_id: int):
     # Eager load sheets -> rows might be too heavy?
